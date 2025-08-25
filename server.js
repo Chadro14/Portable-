@@ -1,11 +1,26 @@
-const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 8080;
+// Import du serveur pour garder le bot en vie
+require('./server.js');
 
-app.get('/', (req, res) => {
-    res.send('Royale-Protection est en ligne!');
+// Code de votre bot Royale-Protection
+const qrcode = require('qrcode-terminal');
+const { Client, LocalAuth } = require('whatsapp-web.js');
+
+const client = new Client({
+    authStrategy: new LocalAuth()
 });
 
-app.listen(PORT, () => {
-    console.log(`Le serveur est en cours d'exécution sur le port ${PORT}`);
+client.on('qr', qr => {
+    qrcode.generate(qr, { small: true });
 });
+
+client.on('ready', () => {
+    console.log('Client is ready! Royale-Protection est maintenant en ligne et protège votre compte.');
+});
+
+client.on('message', message => {
+    // Le code pour la détection de spam ira ici
+    console.log(`Message reçu de : ${message.from}`);
+    console.log(`Contenu : ${message.body}`);
+});
+
+client.initialize();

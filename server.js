@@ -16,11 +16,22 @@ client.on('ready', () => {
     console.log('Client is ready! Royale-Protection est maintenant en ligne et protège votre compte.');
 });
 
+// Fonction pour ajouter un délai
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 client.on('message', async message => {
     const sender = message.from;
     const body = message.body.toLowerCase();
 
-    // 1. Détection de spam par mots-clés
+    // 1. Détection des contacts légitimes (liste blanche)
+    const contact = await message.getContact();
+    if (contact.isMyContact) {
+        return; 
+    }
+
+    // 2. Détection de spam par mots-clés
     const spamKeywords = [
         'gagner de l’argent',
         'crypto',
@@ -28,29 +39,27 @@ client.on('message', async message => {
         'cliquez ici'
     ];
     
-    // Vérifie si le message contient un mot-clé de spam
     const containsSpam = spamKeywords.some(keyword => body.includes(keyword));
 
     if (containsSpam) {
         console.log(`[ALERTE SPAM] Message de ${sender} a été détecté comme spam.`);
         message.reply(`⛔️ ALERTE: Ce message a été identifié comme spam. Le contenu est en cours de surveillance par Royale-Protection.`);
-        
-        // Optionnel: vous pouvez bloquer l'utilisateur
-        // client.blockContact(sender);
     }
     
-    // 2. Détection de spams par messages de groupe
+    // 3. Détection de spams par messages de groupe
     if (message.isGroupMsg) {
-        // Optionel: vous pouvez interdire les liens ou les photos dans un groupe
         if (message.hasMedia || body.includes('http')) {
             console.log(`[MODÉRATION GROUPE] Message suspect de ${sender}.`);
-            message.delete(true); // Supprime le message de tous les participants du groupe
+            message.delete(true); 
+            // Ajoute un petit délai avant de répondre pour éviter le bannissement
+            await sleep(1500); 
             message.reply(`⚠️ Le message a été supprimé par Royale-Protection. Les liens et médias sont interdits dans ce groupe.`);
         }
     }
 
-    // Réponse automatique pour les utilisateurs
+    // 4. Réponse automatique pour les utilisateurs
     if (body.includes('salut')) {
+        await sleep(2000); 
         message.reply(`Salut, je suis Royale-Protection. Je suis là pour garantir la sécurité de votre compte.`);
     }
 

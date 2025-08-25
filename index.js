@@ -1,6 +1,14 @@
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
+// On utilise un objet pour stocker l'historique des messages de chaque utilisateur.
+// Format : { 'numero_de_telephone': { last_message_time: 123456789, message_count: 5 } }
+const userMessageHistory = {};
+
+// Paramètres pour la détection du spam
+const SPAM_THRESHOLD_SECONDS = 5; // Limite de temps en secondes
+const SPAM_THRESHOLD_MESSAGES = 10; // Nombre de messages max dans ce laps de temps
+
 const client = new Client({
     authStrategy: new LocalAuth({
         dataPath: './.wwebjs_auth'
@@ -21,17 +29,54 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Fonction pour vérifier si un utilisateur envoie des spams en masse
+function isSpamming(sender) {
+    const now = Date.now();
+    
+    // Si l'utilisateur n'est pas encore dans l'historique, on l'ajoute.
+    if (!userMessageHistory[sender]) {
+        userMessageHistory[sender] = { last_message_time: now, message_count: 1 };
+        return false;
+    }
+    
+    const history = userMessageHistory[sender];
+    const timeSinceLastMessage = now - history.last_message_time;
+    
+    // Si le temps écoulé est inférieur au seuil, on incrémente le compteur.
+    if (timeSinceLastMessage < SPAM_THRESHOLD_SECONDS * 1000) {
+        history.message_count++;
+        // Si le compteur dépasse le seuil, c'est un spam !
+        if (history.message_count > SPAM_THRESHOLD_MESSAGES) {
+            return true;
+        }
+    } else {
+        // Sinon, on réinitialise le compteur.
+        userMessageHistory[sender] = { last_message_time: now, message_count: 1 };
+    }
+    
+    return false;
+}
+
 client.on('message', async message => {
     const sender = message.from;
     const body = message.body.toLowerCase();
 
-    // 1. Détection des contacts légitimes (liste blanche)
+    // Vérifie si le contact de l'expéditeur existe
     const contact = await message.getContact();
     if (contact.isMyContact) {
         return; 
     }
 
-    // 2. Détection de spam par mots-clés
+    // Nouvelle vérification pour la détection de spam en rafale
+    if (isSpamming(sender)) {
+        console.log(`[ALERTE SPAM EN RAFALE] ${sender} envoie trop de messages. Bloqué.`);
+        await message.reply(`⛔️ ALERTE: Vous avez été identifié comme un spammeur. Vos messages ne seront pas pris en compte.`);
+        // Optionnel : vous pouvez ajouter une ligne pour bloquer l'utilisateur ici
+        // client.blockContact(sender);
+        return; // Arrête le traitement pour cet utilisateur
+    }
+
+    // Le reste de votre code existant pour la détection par mots-clés, etc.
     const spamKeywords = [
         'gagner de l’argent',
         'crypto',
@@ -46,18 +91,15 @@ client.on('message', async message => {
         message.reply(`⛔️ ALERTE: Ce message a été identifié comme spam. Le contenu est en cours de surveillance par Royale-Protection.`);
     }
     
-    // 3. Détection de spams par messages de groupe
     if (message.isGroupMsg) {
         if (message.hasMedia || body.includes('http')) {
             console.log(`[MODÉRATION GROUPE] Message suspect de ${sender}.`);
             message.delete(true); 
-            // Ajoute un petit délai avant de répondre pour éviter le bannissement
             await sleep(1500); 
             message.reply(`⚠️ Le message a été supprimé par Royale-Protection. Les liens et médias sont interdits dans ce groupe.`);
         }
     }
 
-    // 4. Réponse automatique pour les utilisateurs
     if (body.includes('salut')) {
         await sleep(2000); 
         message.reply(`Salut, je suis Royale-Protection. Je suis là pour garantir la sécurité de votre compte.`);
@@ -68,28 +110,3 @@ client.on('message', async message => {
 });
 
 client.initialize();
-client.on('group_participant_change', async (notification) => {
-    // Vérifie si l'action est une suppression de participant
-    if (notification.action === 'remove') {
-        const groupChat = await notification.getChat();
-        const participantId = notification.participant;
-        const authorId = notification.author; // ID de l'utilisateur qui a initié l'action
-
-        // Si l'action n'a pas été faite par le bot lui-même
-        if (authorId !== client.info.me._serialized) {
-            console.log(`[ACTION SUSPECTE] ${authorId} a tenté de supprimer ${participantId}.`);
-            
-            // Le bot retire l'utilisateur qui a initié l'action
-            try {
-                await groupChat.removeParticipants([authorId]);
-                console.log(`[BAN AUTOMATIQUE] ${authorId} a été banni pour avoir tenté de bannir un autre membre.`);
-                
-                // Le bot envoie un message dans le groupe pour expliquer l'action
-                await groupChat.sendMessage(`L'utilisateur @${authorId.split('@')[0]} a été automatiquement banni par Royale-Protection pour avoir tenté de supprimer un membre du groupe.`);
-            } catch (error) {
-                console.error(`Erreur lors de la suppression de l'utilisateur : ${error.message}`);
-            }
-        }
-    }
-});
-            

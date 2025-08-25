@@ -1,70 +1,44 @@
-const qrcode = require('qrcode-terminal');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
+const fetch = require('node-fetch');
 
-const client = new Client({
-    authStrategy: new LocalAuth({
-        dataPath: './.wwebjs_auth'
-    })
-});
+const app = express();
+const PORT = process.env.PORT || 8080;
 
-client.on('qr', qr => {
-    console.log('Veuillez scanner ce code QR pour connecter Royale-Protection:');
-    qrcode.generate(qr, { small: true });
-});
+// Cette ligne est cruciale : elle lance la logique de ton bot qui se trouve dans index.js
+require('./index.js');
 
-client.on('ready', () => {
-    console.log('Client is ready! Royale-Protection est maintenant en ligne et protège votre compte.');
-});
+// Middleware pour servir les fichiers statiques depuis le dossier 'public'
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Fonction pour ajouter un délai
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+// Middleware pour analyser les requêtes JSON
+app.use(bodyParser.json());
 
-client.on('message', async message => {
-    const sender = message.from;
-    const body = message.body.toLowerCase();
-
-    // 1. Détection des contacts légitimes (liste blanche)
-    const contact = await message.getContact();
-    if (contact.isMyContact) {
-        return; 
+// Point de terminaison API pour le chatbot (si tu l'utilises)
+app.post('/api/chat', async (req, res) => {
+    const userMessage = req.body.message;
+    if (!userMessage) {
+        return res.status(400).json({ reply: "Message manquant." });
     }
 
-    // 2. Détection de spam par mots-clés
-    const spamKeywords = [
-        'gagner de l’argent',
-        'crypto',
-        'opportunité d’investissement',
-        'cliquez ici'
-    ];
-    
-    const containsSpam = spamKeywords.some(keyword => body.includes(keyword));
-
-    if (containsSpam) {
-        console.log(`[ALERTE SPAM] Message de ${sender} a été détecté comme spam.`);
-        message.reply(`⛔️ ALERTE: Ce message a été identifié comme spam. Le contenu est en cours de surveillance par Royale-Protection.`);
+    try {
+        const apiUrl = `https://kyotaka-api.vercel.app/api/chat?query=${encodeURIComponent(userMessage)}`;
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        const botReply = data.message;
+        res.json({ reply: botReply });
+    } catch (error) {
+        console.error("Erreur de l'API Kyotaka:", error);
+        res.status(500).json({ reply: "Désolé, une erreur est survenue." });
     }
-    
-    // 3. Détection de spams par messages de groupe
-    if (message.isGroupMsg) {
-        if (message.hasMedia || body.includes('http')) {
-            console.log(`[MODÉRATION GROUPE] Message suspect de ${sender}.`);
-            message.delete(true); 
-            // Ajoute un petit délai avant de répondre pour éviter le bannissement
-            await sleep(1500); 
-            message.reply(`⚠️ Le message a été supprimé par Royale-Protection. Les liens et médias sont interdits dans ce groupe.`);
-        }
-    }
-
-    // 4. Réponse automatique pour les utilisateurs
-    if (body.includes('salut')) {
-        await sleep(2000); 
-        message.reply(`Salut, je suis Royale-Protection. Je suis là pour garantir la sécurité de votre compte.`);
-    }
-
-    console.log(`Message reçu de : ${sender}`);
-    console.log(`Contenu : ${body}`);
 });
 
-client.initialize();
+// Une route simple pour que le serveur reste actif sur Render
+app.get('/', (req, res) => {
+    res.send('Royale-Protection est en ligne!');
+});
+
+app.listen(PORT, () => {
+    console.log(`Le serveur est en cours d'exécution sur le port ${PORT}`);
+});
